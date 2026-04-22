@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 
@@ -15,12 +16,17 @@ func main() {
 	ctx := context.Background()
 
 	projectID := os.Getenv("GOOGLE_CLOUD_PROJECT")
+	if projectID == "" {
+		log.Fatal("GOOGLE_CLOUD_PROJECT is not set")
+	}
 
 	var err error
 	client, err = firestore.NewClient(ctx, projectID)
 	if err != nil {
-		panic(err)
+		log.Fatalf("Failed to create Firestore client: %v", err)
 	}
+
+	log.Println("✅ Firestore initialized")
 
 	http.HandleFunc("/", handler)
 	http.HandleFunc("/add", addHandler)
@@ -31,7 +37,12 @@ func main() {
 		port = "8080"
 	}
 
-	http.ListenAndServe(":"+port, nil)
+	log.Println("🚀 Server running on port", port)
+
+	// IMPORTANT: this must not silently fail
+	if err := http.ListenAndServe(":"+port, nil); err != nil {
+		log.Fatalf("Server failed: %v", err)
+	}
 }
 
 func handler(w http.ResponseWriter, r *http.Request) {
@@ -46,6 +57,7 @@ func addHandler(w http.ResponseWriter, r *http.Request) {
 	})
 
 	if err != nil {
+		log.Printf("Add error: %v", err)
 		http.Error(w, err.Error(), 500)
 		return
 	}
@@ -57,7 +69,12 @@ func listHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
 
 	iter := client.Collection("test").Documents(ctx)
-	docs, _ := iter.GetAll()
+	docs, err := iter.GetAll()
+	if err != nil {
+		log.Printf("List error: %v", err)
+		http.Error(w, err.Error(), 500)
+		return
+	}
 
 	for _, doc := range docs {
 		fmt.Fprintf(w, "%v\n", doc.Data())
