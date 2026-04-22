@@ -13,17 +13,19 @@ import (
 var client *firestore.Client
 
 func main() {
-	// ctx := context.Background()
-
+	ctx := context.Background()
 	projectID := os.Getenv("GOOGLE_CLOUD_PROJECT")
 	if projectID == "" {
-		log.Fatal("GOOGLE_CLOUD_PROJECT is not set")
+		// Stop hard-failing if it's not set. Fallback to a default or log a severe warning,
+		// or ensure you pass it via your CI/CD pipeline.
+		log.Fatal("GOOGLE_CLOUD_PROJECT environment variable is missing.")
 	}
 
 	var err error
-	// client, err = firestore.NewClient(ctx, projectID)
+	// UNCOMMENT THIS LINE:
+	client, err = firestore.NewClient(ctx, projectID)
 	if err != nil {
-		log.Printf("⚠️ Firestore init failed: %v", err)
+		log.Fatalf("⚠️ Firestore init failed: %v", err) // Use Fatalf here. If the DB fails, the app shouldn't run.
 	} else {
 		log.Println("✅ Firestore connected")
 	}
