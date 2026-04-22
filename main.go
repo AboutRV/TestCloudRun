@@ -13,7 +13,7 @@ import (
 var client *firestore.Client
 
 func main() {
-	ctx := context.Background()
+	// ctx := context.Background()
 
 	projectID := os.Getenv("GOOGLE_CLOUD_PROJECT")
 	if projectID == "" {
