@@ -23,7 +23,9 @@ func main() {
 	var err error
 	client, err = firestore.NewClient(ctx, projectID)
 	if err != nil {
-		log.Fatalf("Failed to create Firestore client: %v", err)
+		log.Printf("⚠️ Firestore init failed: %v", err)
+	} else {
+		log.Println("✅ Firestore connected")
 	}
 
 	log.Println("✅ Firestore initialized")
