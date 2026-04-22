@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -66,28 +65,45 @@ func main() {
 }
 
 func handler(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, "Firestore connected 🚀")
+	sendJSON(w, 200, APIResponse{Status: "success", Data: "Firestore API running 🚀"})
 }
 
+// 🚀 THE NEW ADD HANDLER: Accepts JSON, enforces POST, writes to "users"
 func addHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := context.Background()
-
-	_, _, err := client.Collection("test").Add(ctx, map[string]interface{}{
-		"name": "Aditya",
-	})
-
-	if err != nil {
-		log.Printf("Add error: %v", err)
-		http.Error(w, err.Error(), 500)
+	if r.Method != http.MethodPost {
+		sendJSON(w, 405, APIResponse{Status: "error", Error: "Only POST allowed"})
 		return
 	}
 
-	fmt.Fprintf(w, "Data added")
+	var u User
+	if err := json.NewDecoder(r.Body).Decode(&u); err != nil {
+		sendJSON(w, 400, APIResponse{Status: "error", Error: "Invalid JSON payload"})
+		return
+	}
+
+	if u.Name == "" {
+		sendJSON(w, 400, APIResponse{Status: "error", Error: "Name is required"})
+		return
+	}
+
+	ctx := r.Context()
+	// IMPORTANT: Writing to "users" collection
+	ref, _, err := client.Collection("users").Add(ctx, u)
+	if err != nil {
+		log.Printf("Add error: %v", err)
+		sendJSON(w, 500, APIResponse{Status: "error", Error: "Failed to save"})
+		return
+	}
+
+	u.ID = ref.ID
+	sendJSON(w, 201, APIResponse{Status: "success", Data: u})
 }
 
+// 📋 THE LIST HANDLER: Reads from "users", returns [] instead of null
 func listHandler(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context() // Better practice than context.Background() in handlers
+	ctx := r.Context()
 
+	// IMPORTANT: Reading from "users" collection
 	iter := client.Collection("users").Documents(ctx)
 	docs, err := iter.GetAll()
 	if err != nil {
@@ -95,17 +111,19 @@ func listHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var users []User
+	// Fixes the "null" bug. This initializes an empty array.
+	users := []User{}
 	for _, doc := range docs {
 		var u User
 		doc.DataTo(&u)
-		u.ID = doc.Ref.ID // Capture the Firestore Auto-ID
+		u.ID = doc.Ref.ID
 		users = append(users, u)
 	}
 
 	sendJSON(w, 200, APIResponse{Status: "success", Data: users})
 }
 
+// ✏️ THE UPDATE HANDLER: Updates "users"
 func updateHandler(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	id := r.URL.Query().Get("id")
@@ -114,7 +132,7 @@ func updateHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Example: Hardcoding an update for now
+	// IMPORTANT: Updating "users" collection
 	_, err := client.Collection("users").Doc(id).Set(ctx, map[string]interface{}{
 		"name": "Updated Name",
 	}, firestore.MergeAll)
