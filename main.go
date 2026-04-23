@@ -27,8 +27,6 @@ type APIResponse struct {
 
 var client *firestore.Client
 
-const firestoreBatchLimit = 500
-
 func main() {
 	ctx := context.Background()
 	projectID := os.Getenv("GOOGLE_CLOUD_PROJECT")
@@ -124,7 +122,14 @@ func listHandler(w http.ResponseWriter, r *http.Request) {
 		users = append(users, u)
 	}
 
-	sendJSON(w, 200, APIResponse{Status: "success", Data: users})
+	// 🚀 THE FIX: Wrap the array and the count in a map
+	sendJSON(w, 200, APIResponse{
+		Status: "success",
+		Data: map[string]interface{}{
+			"count": len(users),
+			"users": users,
+		},
+	})
 }
 
 // ✏️ THE UPDATE HANDLER: Updates "users"
