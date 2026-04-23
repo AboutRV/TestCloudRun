@@ -53,12 +53,15 @@ func main() {
 
 	log.Println("✅ Firestore initialized")
 
+	// Unprotected routes (e.g., health checks)
 	http.HandleFunc("/", handler)
-	http.HandleFunc("/add", addHandler)
-	http.HandleFunc("/list", listHandler)
-	http.HandleFunc("/update", updateHandler)
-	http.HandleFunc("/batch-add", batchAddHandler)
-	http.HandleFunc("/batch-update", bulkUpdateHandler)
+
+	// 🛡️ Protected routes wrapped in middleware
+	http.HandleFunc("/list", authMiddleware(listHandler))
+	http.HandleFunc("/add", authMiddleware(addHandler))
+	http.HandleFunc("/update", authMiddleware(updateHandler))
+	http.HandleFunc("/batch-add", authMiddleware(batchAddHandler))
+	http.HandleFunc("/batch-update", authMiddleware(bulkUpdateHandler))
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -75,6 +78,30 @@ func main() {
 
 func handler(w http.ResponseWriter, r *http.Request) {
 	sendJSON(w, 200, APIResponse{Status: "success", Data: "Firestore API running 🚀"})
+}
+
+// 🔐 THE GATEKEEPER: Middleware to protect your endpoints
+func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// 1. Check for the Authorization header
+		token := r.Header.Get("Authorization")
+
+		// 2. Validate the token (In a real app, verify the JWT here)
+		// For the sandbox, we enforce a strict secret key.
+		expectedToken := "Bearer VOIBIZ_SUPER_SECRET"
+
+		if token != expectedToken {
+			log.Printf("⚠️ Unauthorized access attempt from %s", r.RemoteAddr)
+			sendJSON(w, http.StatusUnauthorized, APIResponse{
+				Status: "error",
+				Error:  "Unauthorized. Invalid or missing token.",
+			})
+			return
+		}
+
+		// 3. If the token is valid, pass the request to the actual handler
+		next.ServeHTTP(w, r)
+	}
 }
 
 // 🚀 THE NEW ADD HANDLER: Accepts JSON, enforces POST, writes to "users"
