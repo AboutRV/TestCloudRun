@@ -25,6 +25,12 @@ type APIResponse struct {
 	Error  string      `json:"error,omitempty"`
 }
 
+// UpdateRequest represents a partial update for a specific document
+type UpdateRequest struct {
+	ID   string                 `json:"id"`
+	Data map[string]interface{} `json:"data"`
+}
+
 var client *firestore.Client
 
 func main() {
@@ -52,6 +58,7 @@ func main() {
 	http.HandleFunc("/list", listHandler)
 	http.HandleFunc("/update", updateHandler)
 	http.HandleFunc("/batch-add", batchAddHandler)
+	http.HandleFunc("/batch-update", bulkUpdateHandler)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -201,6 +208,60 @@ func batchAddHandler(w http.ResponseWriter, r *http.Request) {
 	sendJSON(w, http.StatusCreated, APIResponse{
 		Status: "success",
 		Data:   fmt.Sprintf("Successfully processed %d records via BulkWriter", len(users)),
+	})
+}
+
+// ✏️ THE BATCH UPDATE HANDLER: Safely merges partial data into existing documents
+func bulkUpdateHandler(w http.ResponseWriter, r *http.Request) {
+	// Updates should technically be PUT or PATCH, but POST is acceptable for custom bulk endpoints
+	if r.Method != http.MethodPost && r.Method != http.MethodPut {
+		sendJSON(w, http.StatusMethodNotAllowed, APIResponse{Status: "error", Error: "Only POST or PUT allowed"})
+		return
+	}
+
+	var updates []UpdateRequest
+	if err := json.NewDecoder(r.Body).Decode(&updates); err != nil {
+		sendJSON(w, http.StatusBadRequest, APIResponse{Status: "error", Error: "Invalid JSON payload. Expected an array of update objects."})
+		return
+	}
+
+	if len(updates) == 0 {
+		sendJSON(w, http.StatusBadRequest, APIResponse{Status: "error", Error: "Empty payload"})
+		return
+	}
+
+	ctx := r.Context()
+	bw := client.BulkWriter(ctx)
+
+	validUpdates := 0
+
+	for _, u := range updates {
+		// Defensive programming: Do not process if the client forgot the ID
+		if u.ID == "" {
+			log.Printf("⚠️ Bulk Update Warning: Skipped record because ID was missing")
+			continue
+		}
+		if len(u.Data) == 0 {
+			log.Printf("⚠️ Bulk Update Warning: Skipped record %s because data was empty", u.ID)
+			continue
+		}
+
+		ref := client.Collection("users").Doc(u.ID)
+
+		// MergeAll is the safety net. It only overwrites the fields provided in u.Data
+		_, err := bw.Set(ref, u.Data, firestore.MergeAll)
+		if err != nil {
+			log.Printf("BulkWriter update error for user %s: %v", u.ID, err)
+		} else {
+			validUpdates++
+		}
+	}
+
+	bw.Flush()
+
+	sendJSON(w, http.StatusOK, APIResponse{
+		Status: "success",
+		Data:   fmt.Sprintf("Successfully processed %d updates via BulkWriter", validUpdates),
 	})
 }
 
