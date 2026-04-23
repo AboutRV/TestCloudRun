@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -25,6 +26,8 @@ type APIResponse struct {
 }
 
 var client *firestore.Client
+
+const firestoreBatchLimit = 500
 
 func main() {
 	ctx := context.Background()
@@ -50,6 +53,7 @@ func main() {
 	http.HandleFunc("/add", addHandler)
 	http.HandleFunc("/list", listHandler)
 	http.HandleFunc("/update", updateHandler)
+	http.HandleFunc("/batch-add", batchAddHandler)
 
 	port := os.Getenv("PORT")
 	if port == "" {
@@ -143,6 +147,56 @@ func updateHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	sendJSON(w, 200, APIResponse{Status: "success", Data: "User updated"})
+}
+
+// 📦 THE BATCH ADD HANDLER: Uses modern BulkWriter API
+func batchAddHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		sendJSON(w, http.StatusMethodNotAllowed, APIResponse{Status: "error", Error: "Only POST allowed"})
+		return
+	}
+
+	var users []User
+	if err := json.NewDecoder(r.Body).Decode(&users); err != nil {
+		sendJSON(w, http.StatusBadRequest, APIResponse{Status: "error", Error: "Invalid JSON payload. Expected an array of users."})
+		return
+	}
+
+	if len(users) == 0 {
+		sendJSON(w, http.StatusBadRequest, APIResponse{Status: "error", Error: "Empty payload"})
+		return
+	}
+
+	ctx := r.Context()
+
+	// Initialize the BulkWriter.
+	// It automatically handles the 500-limit chunking, retries, and parallel execution.
+	bw := client.BulkWriter(ctx)
+
+	// Queue the operations
+	for _, u := range users {
+		var ref *firestore.DocumentRef
+		if u.ID == "" {
+			ref = client.Collection("users").NewDoc()
+		} else {
+			ref = client.Collection("users").Doc(u.ID)
+		}
+
+		// bw.Set queues the write. It does not block.
+		_, err := bw.Set(ref, u)
+		if err != nil {
+			log.Printf("BulkWriter queue error for user %s: %v", u.Name, err)
+			// We log the error but allow the rest of the queue to process.
+		}
+	}
+
+	// Flush blocks until all queued operations have been sent to Firestore and completed.
+	bw.Flush()
+
+	sendJSON(w, http.StatusCreated, APIResponse{
+		Status: "success",
+		Data:   fmt.Sprintf("Successfully processed %d records via BulkWriter", len(users)),
+	})
 }
 
 func sendJSON(w http.ResponseWriter, status int, payload APIResponse) {
